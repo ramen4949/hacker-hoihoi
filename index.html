@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>巣箱の観察ダッシュボード (全域完全収まり版)</title>
+    
+    <!-- D3.js & TopoJSON -->
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://unpkg.com/topojson-client@3"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=Roboto+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-color: #0b111e;
+            --panel-bg: #131c2e;
+            --panel-border: #1e2c44;
+            --text-main: #ffffff;
+            --text-sub: #8a99ad;
+            --accent-blue: #38bdf8;
+            --accent-yellow: #fbbf24;
+            --accent-red: #f87171;
+            --accent-green: #4ade80;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Noto Sans JP', sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        header {
+            background-color: var(--panel-bg);
+            border-bottom: 1px solid var(--panel-border);
+            padding: 12px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 64px;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .header-title h1 {
+            font-size: 20px;
+            font-weight: 900;
+        }
+
+        .status-badge {
+            background-color: #1e293b;
+            color: var(--text-sub);
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid #334155;
+        }
+
+        .status-badge.connected {
+            background-color: rgba(74, 222, 128, 0.1);
+            color: var(--accent-green);
+            border-color: rgba(74, 222, 128, 0.3);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--text-sub);
+        }
+
+        .status-badge.connected .status-dot {
+            background-color: var(--accent-green);
+            box-shadow: 0 0 8px var(--accent-green);
+        }
+
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .time-display {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 18px;
+            font-weight: 700;
+            background: #090d16;
+            padding: 6px 14px;
+            border-radius: 6px;
+            border: 1px solid var(--panel-border);
+        }
+
+        .btn {
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        .btn:hover { background-color: #1d4ed8; }
+
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            grid-template-rows: 1fr 180px;
+            gap: 12px;
+            padding: 12px;
+            height: calc(100vh - 64px);
+        }
+
+        /* マップエリア */
+        .map-container {
+            grid-column: 1;
+            grid-row: 1;
+            background-color: #050b14;
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        #mapSvg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .country {
+            fill: #1a2638;
+            stroke: #2a3b54;
+            stroke-width: 0.6;
+        }
+
+        .country-label {
+            fill: #64748b;
+            font-size: 10px;
+            font-weight: 700;
+            text-anchor: middle;
+            pointer-events: none;
+        }
+
+        .map-hint {
+            position: absolute;
+            top: 12px;
+            left: 12px;
+            z-index: 10;
+            background: rgba(19, 28, 46, 0.85);
+            border: 1px solid var(--panel-border);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: var(--text-sub);
+            backdrop-filter: blur(4px);
+            pointer-events: auto;
+        }
+
+        .side-panel {
+            grid-column: 2;
+            grid-row: 1 / span 2;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .card {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 16px;
+            position: relative;
+        }
+
+        .card-title {
+            font-size: 14px;
+            color: var(--text-sub);
+            font-weight: 700;
+        }
+
+        .card-value {
+            font-family: 'Roboto Mono', monospace;
+            font-size: 36px;
+            font-weight: 700;
+            text-align: right;
+            margin-top: 8px;
+        }
+
+        .card-unit {
+            font-size: 14px;
+            margin-left: 4px;
+            color: var(--text-sub);
+        }
+
+        .card-red-bar::before {
+            content: '';
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 4px;
+            background-color: var(--accent-red);
+        }
+
+        .legend-card {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 16px;
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .legend-title {
+            font-size: 13px;
+            color: var(--text-sub);
+            font-weight: 700;
+            border-bottom: 1px solid var(--panel-border);
+            padding-bottom: 8px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .legend-icon {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-top: 3px;
+            flex-shrink: 0;
+        }
+
+        .legend-text strong { display: block; font-size: 13px; }
+        .legend-text span { font-size: 11px; color: var(--text-sub); }
+
+        .log-container {
+            grid-column: 1;
+            grid-row: 2;
+            background-color: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        .log-header {
+            font-size: 12px;
+            color: var(--text-sub);
+            font-weight: 700;
+            margin-bottom: 8px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .log-list {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            font-size: 12px;
+        }
+
+        .log-item {
+            padding: 4px 8px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+            display: flex;
+            gap: 12px;
+            border-left: 3px solid var(--text-sub);
+        }
+
+        .log-item.blue { border-left-color: var(--accent-blue); }
+        .log-item.yellow { border-left-color: var(--accent-yellow); }
+        .log-item.red { border-left-color: var(--accent-red); }
+
+        .log-time { color: var(--text-sub); }
+        .log-ip { color: var(--accent-blue); width: 120px; }
+        .log-action { flex: 1; color: var(--text-main); }
+
+        /* モーダル */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-card {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 12px;
+            width: 500px;
+            max-width: 90%;
+            padding: 24px;
+        }
+
+        .modal-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            color: var(--accent-blue);
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .input-group {
+            margin: 16px 0;
+        }
+
+        .input-group label {
+            display: block;
+            font-size: 12px;
+            color: var(--text-sub);
+            margin-bottom: 6px;
+        }
+
+        .input-group input {
+            width: 100%;
+            background: #090d16;
+            border: 1px solid var(--panel-border);
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            font-family: 'Roboto Mono', monospace;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-title">
+            <h1>巣箱の観察ダッシュボード</h1>
+            <div class="status-badge" id="statusBadge">
+                <div class="status-dot"></div>
+                <span id="statusText">未接続</span>
+            </div>
+        </div>
+        <div class="header-controls">
+            <div class="time-display" id="timeDisplay">観察時刻 00:00:00</div>
+            <button class="btn" onclick="toggleModal()">⚙️ 接続設定</button>
+        </div>
+    </header>
+
+    <main>
+        <div class="map-container" id="mapContainer">
+            <div class="map-hint">📍 リアルタイム世界全域マップ (グリーンランド〜南端まで全域表示)</div>
+            <svg id="mapSvg"></svg>
+        </div>
+
+        <div class="side-panel">
+            <div class="card">
+                <div class="card-title">訪問の回数</div>
+                <div class="card-value"><span id="countTotal">0</span><span class="card-unit">回</span></div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">訪問元の数</div>
+                <div class="card-value"><span id="countIPs">0</span><span class="card-unit">か所</span></div>
+            </div>
+
+            <div class="card card-red-bar">
+                <div class="card-title">入れられた回数</div>
+                <div class="card-value"><span id="countBreach">0</span><span class="card-unit">回</span></div>
+            </div>
+
+            <div class="legend-card">
+                <div class="legend-title">攻撃タイプ (凡例)</div>
+                <div class="legend-item">
+                    <div class="legend-icon" style="background-color: var(--accent-blue);"></div>
+                    <div class="legend-text"><strong>アリの偵察部隊</strong><span>ポートスキャン</span></div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-icon" style="background-color: var(--accent-yellow);"></div>
+                    <div class="legend-text"><strong>エサに食いつく</strong><span>辞書攻撃</span></div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-icon" style="background-color: var(--accent-red);"></div>
+                    <div class="legend-text"><strong>入ってきた</strong><span>ログイン成功</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="log-container">
+            <div class="log-header">
+                <span>📡 リアルタイムログ (本物のみ)</span>
+                <span id="logCount">ログ数: 0</span>
+            </div>
+            <div class="log-list" id="logList">
+                <div class="log-item" style="color: var(--text-sub);">
+                    おとりサーバーからの受信待機中... (シミュレーション機能なし)
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- 接続設定モーダル -->
+    <div class="modal-overlay" id="configModal">
+        <div class="modal-card">
+            <div class="modal-title">
+                <span>⚙️ サーバー接続設定</span>
+                <button class="btn" style="background:#334155;" onclick="toggleModal()">✕</button>
+            </div>
+            <p style="font-size:13px; color:#cbd5e1; line-height:1.5;">
+                本物の攻撃データを受信するには、おとりサーバーのWebSocket URLを入力して接続してください。
+            </p>
+            <div class="input-group">
+                <label>WebSocket サーバー URL</label>
+                <input type="text" id="wsUrlInput" value="ws://localhost:8765">
+            </div>
+            <div style="text-align: right;">
+                <button class="btn" onclick="startWebSocket()">接続を開始する</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let nestLat = 35.6762; // 日本（東京付近）
+        let nestLng = 139.6503;
+        let totalVisits = 0;
+        let uniqueIPs = new Set();
+        let breaches = 0;
+        let ws = null;
+
+        // 主要な国のラベル座標と日本語表記（グリーンランドも追加）
+        const countryLabels = [
+            { name: "日本", lat: 36.5, lng: 138.0 },
+            { name: "グリーンランド", lat: 72.0, lng: -40.0 },
+            { name: "アメリカ", lat: 38.0, lng: -97.0 },
+            { name: "中国", lat: 35.0, lng: 104.0 },
+            { name: "ロシア", lat: 60.0, lng: 100.0 },
+            { name: "ブラジル", lat: -14.0, lng: -51.0 },
+            { name: "オーストラリア", lat: -25.0, lng: 133.0 },
+            { name: "インド", lat: 20.5, lng: 78.9 },
+            { name: "イギリス", lat: 55.3, lng: -3.4 },
+            { name: "フランス", lat: 46.2, lng: 2.2 },
+            { name: "ドイツ", lat: 51.1, lng: 10.4 },
+            { name: "カナダ", lat: 56.0, lng: -106.0 },
+            { name: "南アフリカ", lat: -30.5, lng: 22.9 },
+            { name: "エジプト", lat: 26.8, lng: 30.8 },
+            { name: "シンガポール", lat: 1.35, lng: 103.8 }
+        ];
+
+        // D3.js マップ設定（縮尺を小さくして、上下の位置を下げることで北側のグリーンランドまで完璧に収める）
+        const svg = d3.select("#mapSvg");
+        const container = document.getElementById("mapContainer");
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+
+        const projection = d3.geoEquirectangular()
+            .scale(width / 7.2)
+            .translate([width / 2, height / 1.85]);
+
+        const path = d3.geoPath().projection(projection);
+
+        const gMap = svg.append("g");
+        const gLabels = svg.append("g");
+        const gOverlay = svg.append("g");
+
+        // 巣箱ピン描画
+        let nestPos = projection([nestLng, nestLat]);
+        const nestGroup = gOverlay.append("g")
+            .attr("transform", `translate(${nestPos[0]}, ${nestPos[1]})`);
+
+        nestGroup.append("circle")
+            .attr("r", 10)
+            .attr("fill", "#ef4444")
+            .attr("opacity", 0.3)
+            .append("animate")
+            .attr("attributeName", "r")
+            .attr("values", "6;18;6")
+            .attr("dur", "2s")
+            .attr("repeatCount", "indefinite");
+
+        nestGroup.append("circle")
+            .attr("r", 5)
+            .attr("fill", "#ef4444")
+            .attr("stroke", "#ffffff")
+            .attr("stroke-width", 1.5);
+
+        nestGroup.append("text")
+            .attr("x", 8)
+            .attr("y", 4)
+            .attr("fill", "#ffffff")
+            .attr("font-size", "11px")
+            .attr("font-weight", "bold")
+            .text("🏠 巣箱");
+
+        // TopoJSON世界地図データをロード
+        d3.json("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json").then(data => {
+            const countries = topojson.feature(data, data.objects.countries);
+            
+            // 国の描画
+            gMap.selectAll("path")
+                .data(countries.features)
+                .enter()
+                .append("path")
+                .attr("class", "country")
+                .attr("d", path);
+
+            // 国名ラベルの描画
+            countryLabels.forEach(c => {
+                const pos = projection([c.lng, c.lat]);
+                if (pos) {
+                    gLabels.append("text")
+                        .attr("x", pos[0])
+                        .attr("y", pos[1])
+                        .attr("class", "country-label")
+                        .text(c.name);
+                }
+            });
+        });
+
+        function updateTime() {
+            const now = new Date();
+            document.getElementById('timeDisplay').textContent = `観察時刻 ${now.toTimeString().split(' ')[0]}`;
+        }
+        setInterval(updateTime, 1000);
+        updateTime();
+
+        function addLog(type, ip, message) {
+            const logList = document.getElementById('logList');
+            const now = new Date().toTimeString().split(' ')[0];
+            
+            const item = document.createElement('div');
+            item.className = `log-item ${type}`;
+            item.innerHTML = `
+                <span class="log-time">${now}</span>
+                <span class="log-ip">${ip}</span>
+                <span class="log-action">${message}</span>
+            `;
+            logList.insertBefore(item, logList.firstChild);
+            document.getElementById('logCount').textContent = `ログ数: ${logList.children.length}`;
+        }
+
+        function triggerAttack(lat, lng, ip, type, msg) {
+            totalVisits++;
+            uniqueIPs.add(ip);
+            if (type === 'red') breaches++;
+
+            document.getElementById('countTotal').textContent = totalVisits;
+            document.getElementById('countIPs').textContent = uniqueIPs.size;
+            document.getElementById('countBreach').textContent = breaches;
+
+            const sourcePos = projection([lng, lat]);
+            if (!sourcePos) return;
+
+            const color = type === 'blue' ? '#38bdf8' : (type === 'yellow' ? '#fbbf24' : '#f87171');
+
+            // 攻撃点
+            const point = gOverlay.append("circle")
+                .attr("cx", sourcePos[0])
+                .attr("cy", sourcePos[1])
+                .attr("r", 5)
+                .attr("fill", color);
+
+            // 攻撃軌跡
+            const line = gOverlay.append("line")
+                .attr("x1", sourcePos[0])
+                .attr("y1", sourcePos[1])
+                .attr("x2", nestPos[0])
+                .attr("y2", nestPos[1])
+                .attr("stroke", color)
+                .attr("stroke-width", 2)
+                .attr("stroke-dasharray", "4");
+
+            addLog(type, ip, msg);
+
+            setTimeout(() => {
+                point.remove();
+                line.remove();
+            }, 4000);
+        }
+
+        function startWebSocket() {
+            const url = document.getElementById('wsUrlInput').value;
+            toggleModal();
+
+            try {
+                ws = new WebSocket(url);
+
+                ws.onopen = () => {
+                    document.getElementById('statusBadge').classList.add('connected');
+                    document.getElementById('statusText').textContent = '本物サーバー接続中';
+                    addLog('blue', 'SYSTEM', 'おとりサーバーに正常接続しました。');
+                };
+
+                ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    triggerAttack(data.lat, data.lng, data.ip, data.type, data.msg);
+                };
+
+                ws.onclose = () => {
+                    document.getElementById('statusBadge').classList.remove('connected');
+                    document.getElementById('statusText').textContent = '切断されました';
+                    addLog('red', 'SYSTEM', 'サーバーとの接続が切断されました。');
+                };
+            } catch (e) {
+                alert("接続に失敗しました。URLを確認してください。");
+            }
+        }
+
+        function toggleModal() {
+            document.getElementById('configModal').classList.toggle('hidden');
+        }
+    </script>
+</body>
+</html>
